@@ -12,9 +12,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
  */
 contract GelmalNft is ERC721Enumerable, Ownable {
     using Strings for uint256;
-
-    string public name; // name of contract
-    string public symbol; // sybol of contract
+    
     string public baseURI; // after reveal image dir url
     string public baseExtension = ".json"; // file extension
     string public notRevealedUri; // before reveal image dir url
@@ -33,10 +31,7 @@ contract GelmalNft is ERC721Enumerable, Ownable {
     constructor(
         string memory _name,
         string memory _symbol
-    ) ERC721(_name, _symbol) {
-        name = _name;
-        symbol = _symbol;
-    }
+    ) ERC721(_name, _symbol) { }
 
     // internal
     function _baseURI() internal view virtual override returns (string memory) {
@@ -94,7 +89,6 @@ contract GelmalNft is ERC721Enumerable, Ownable {
     function airDropMint(address _recipient, uint256 _requestedCount) public onlyOwner{
         require(_requestedCount > 0, "zero request");
         for(uint256 i = 0; i < _requestedCount; i++) {
-            _tokenIds.increment();
             uint256 supply = totalSupply();
             _mint(_recipient, supply+1);
         }
