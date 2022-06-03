@@ -1,32 +1,34 @@
 pragma solidity >=0.7.0 <0.9.0;
 
-import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/utils/Counters.sol";
-import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
+// SPDX-License-Identifier: MIT
 /**
  * @title nft reveal version(0.0.1)
  * @author sykang4966@naver.com
  */
-contract GelmalNft is ERC721Enumerable, Ownable {
+
+contract GelmalNftReveal is ERC721, Ownable {
     using Strings for uint256;
-    
-    string public baseURI; // after reveal image dir url
-    string public baseExtension = ".json"; // file extension
-    string public notRevealedUri; // before reveal image dir url
+    using Counters for Counters.Counter;
+    Counters.Counter private _tokenIds;
 
-    uint256 public price = 0.05 ether; // minting price
-    uint256 public maxSupply; // nft total supply in this contract
-    uint256 public maxMintAmount; // number of purchases in one tx
-    uint256 public maxMintPerSale; // number of purchases per person
+    string public baseURI; // 최종이미지 url(dir)
+    string public baseExtension = ".json"; // 파일명
+    string public notRevealedUri; // 개봉전 url(dir)
 
-    bool public paused = false; // minting pause
-    bool public revealed = false; // able reveal
-    bool public publicMintEnabled = false; // able minting
+    uint256 public price = 0.05 ether; //민팅 가격
+    uint256 public maxSupply; // 민팅 총공급량수
+    uint256 public maxMintAmount; // 한번에 살수 있는 민팅
+    uint256 public maxMintPerSale; // 개인이 살수 있는 민팅
 
-    mapping(address => bool) public whitelisted;
+    bool public revealed = false; // 리빌여부
+    bool public publicMintEnabled = false; // 민팅 가능 여부
+    bool public lockNft = false; // lock
+
+    mapping(address => bool) whitelisted;
 
     constructor(
         string memory _name,
@@ -34,37 +36,71 @@ contract GelmalNft is ERC721Enumerable, Ownable {
     ) ERC721(_name, _symbol) { }
 
     // internal
+
     function _baseURI() internal view virtual override returns (string memory) {
         return baseURI;
     }
 
-    // public
+    // public method
+
+    function getContractBalance() public view
+    returns(uint256){
+        return address(this).balance;
+    }
+
+    function getYesOrNoWhiteList(address _user) public view
+    returns (bool){
+        return whitelisted[_user];
+    }
+    function transferFrom(
+        address from,
+        address to,
+        uint256 tokenId
+    ) public virtual override {
+        //solhint-disable-next-line max-line-length
+        require(lockNft == true);
+        require(_isApprovedOrOwner(_msgSender(), tokenId), "ERC721: transfer caller is not owner nor approved");
+
+        _transfer(from, to, tokenId);
+    }
     function publicMint(uint256 _requestedAmount) public payable {
-        uint256 supply = totalSupply();
-        require(publicMintEnabled, "The public sale is not enabled!");
-        require(!paused, "now mint paused");
-        require(supply + _requestedAmount <= maxSupply + 1, "Exceed max amount"); // 민팅 총 갯수
+        uint256 nowTokenIds = _tokenIds.current();
+        require(publicMintEnabled, "The public sale is not enabled!"); // 민팅 가능 여부
+        require(nowTokenIds + _requestedAmount <= maxSupply + 1, "Exceed max amount"); // 민팅 총 갯수
         require(_requestedAmount > 0 && _requestedAmount <= maxMintAmount, "Too many requests or zero request"); // 최대 구매량 (한번의 tx)
         require(msg.value == price * _requestedAmount, "Not enough eth"); // 이더 잔고부
         require(balanceOf(msg.sender) + _requestedAmount <= maxMintPerSale, "Exceed max amount per person");
 
         for (uint256 i = 1; i <= _requestedAmount; i++) {
-            _safeMint(msg.sender, supply+i);
+            _safeMint(msg.sender, nowTokenIds + 1);
+            _tokenIds.increment();
         }
     }
-    function walletOfOwner(address _owner) public view
-    returns (uint256[] memory) {
-        uint256 ownerTokenCount = balanceOf(_owner);
-        uint256[] memory tokenIds = new uint256[](ownerTokenCount);
-        for (uint256 i; i < ownerTokenCount; i++) {
-            tokenIds[i] = tokenOfOwnerByIndex(_owner, i);
+    function whiteListSale(uint256 _requestedAmount) public payable {
+        uint256 nowTokenIds = _tokenIds.current();
+        require(getYesOrNoWhiteList(msg.sender), "this address is not whitelist user");
+        require(publicMintEnabled, "The public sale is not enabled!"); // 민팅 가능 여부
+        require(nowTokenIds + _requestedAmount <= maxSupply + 1, "Exceed max amount"); // 민팅 총 갯수
+        require(_requestedAmount > 0 && _requestedAmount <= maxMintAmount, "Too many requests or zero request"); // 최대 구매량 (한번의 tx)
+        require(msg.value == price * _requestedAmount, "Not enough eth"); // 이더 잔고부
+        require(balanceOf(msg.sender) + _requestedAmount <= maxMintPerSale, "Exceed max amount per person");
+
+        for (uint256 i = 1; i <= _requestedAmount; i++) {
+            _safeMint(msg.sender, nowTokenIds + 1);
+            _tokenIds.increment();
         }
-        return tokenIds;
+    }
+    function airDropMint(address _reciever, uint256 _requestedCount) public onlyOwner{
+        require(_requestedCount > 0, "zero request");
+        uint256 nowTokenIds = _tokenIds.current();
+        for(uint256 i = 0; i < _requestedCount; i++) {
+            _mint(_reciever, nowTokenIds + i);
+            _tokenIds.increment();
+        }
     }
     function tokenURI(uint256 _tokenId) public view virtual override
     returns (string memory)	{
-
-        if(revealed == false) {
+        if(revealed == false) { // 개별 민팅여부에 따라 가능하게
             return bytes(notRevealedUri).length > 0
             ? string(abi.encodePacked(notRevealedUri, _tokenId.toString(), baseExtension))
             : "";
@@ -77,22 +113,22 @@ contract GelmalNft is ERC721Enumerable, Ownable {
 
     //only owner method
 
-    function reveal() public onlyOwner {
-        revealed = true;
+    //util
+    function reveal(bool _type) public onlyOwner {
+        revealed = _type;
     }
-    function startSale() public onlyOwner {
-        publicMintEnabled = true;
+    function setLockNft(bool _type) public onlyOwner {
+        lockNft = _type;
     }
-    function endSale() public onlyOwner {
-        publicMintEnabled = false;
+    function setSaleState(bool _type) public onlyOwner {
+        publicMintEnabled = _type;
     }
-    function airDropMint(address _recipient, uint256 _requestedCount) public onlyOwner{
-        require(_requestedCount > 0, "zero request");
-        for(uint256 i = 0; i < _requestedCount; i++) {
-            uint256 supply = totalSupply();
-            _mint(_recipient, supply+1);
-        }
-    }
+    /**
+     * title set public sale
+     * param uint256 _maxSupply : max amount of minting
+     * param uint256 _maxMintAmount : can be bought at one tx
+     * param uint256 _maxMintPerSale : can be bought at personal in this contract
+    */
     function setupPublicSale(uint256 _price, uint256 _maxSupply, uint256 _maxMintAmount, uint256 _maxMintPerSale) public onlyOwner {
         price = 0.001 ether * _price;
         maxSupply = _maxSupply;
@@ -105,11 +141,15 @@ contract GelmalNft is ERC721Enumerable, Ownable {
     function setMaxMintAmount(uint256 _newMaxMintAmount) public onlyOwner {
         maxMintAmount = _newMaxMintAmount;
     }
-    function setNotRevealedURI(string memory _notRevealedURI) public onlyOwner {
-        notRevealedUri = _notRevealedURI;
-    }
     function setMaxSupply(uint256 _maxSupply) public onlyOwner {
         maxSupply = _maxSupply;
+    }
+    function setMaxMintPerSale(uint256 _maxMintPerSale) public onlyOwner {
+        maxMintPerSale = _maxMintPerSale;
+    }
+    //url
+    function setNotRevealedURI(string memory _notRevealedURI) public onlyOwner {
+        notRevealedUri = _notRevealedURI;
     }
     function setBaseURI(string memory _newBaseURI) public onlyOwner {
         baseURI = _newBaseURI;
@@ -117,13 +157,23 @@ contract GelmalNft is ERC721Enumerable, Ownable {
     function setBaseExtension(string memory _newBaseExtension) public onlyOwner {
         baseExtension = _newBaseExtension;
     }
-    function pause(bool _state) public onlyOwner {
-        paused = _state;
-    }
+    //whitelist
     function whitelistUser(address _user) public onlyOwner {
         whitelisted[_user] = true;
     }
     function removeWhitelistUser(address _user) public onlyOwner {
         whitelisted[_user] = false;
+    }
+
+    function withdrawToMe() public payable onlyOwner {
+        uint256 amountOfEth = getContractBalance();
+        (bool ms, ) = payable(owner()).call{value: amountOfEth}("");
+        require(ms);
+    }
+
+    function withdrawToOther(uint256 _amount, address _receiver) public payable onlyOwner {
+        uint256 amount = 0.001 ether * _amount;
+        (bool os, ) = payable(_receiver).call{value: amount}("");
+        require(os);
     }
 }
